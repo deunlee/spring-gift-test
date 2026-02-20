@@ -84,3 +84,22 @@ https://code.claude.com/docs/ko/skills 이거 참고해서 skill을 만들어줘
 현재 수정된 파일들을 분석하고 적절한 커밋 메시지를 생성해서 Git 커밋하는 스킬을 생성해줘.
 수정된 파일이 많을 경우 변경된 내용을 그룹화해서 커밋을 여러번 해줘.
 ```
+
+```
+@TEST_STRATEGY.md 해당 문서를 보고 해야될 거 같은걸 해 
+```
+
+```
+@TEST_REVIEW.md를 보고 수정해야 할 내용을 수정해줘
+```
+
+
+### 리뷰어 프롬프트
+```
+@REVIEWER.md 리뷰해줘. 또 결과 내용을 CODE_REVIEW.md 파일로 작성해줘 
+```
+
+```
+@.claude/persona/REVIEWER.md 테스트 코드에 대해서만 리뷰하고 TEST_REVIEW.md 파일로 작성해줘 
+```
+

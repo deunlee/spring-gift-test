@@ -23,7 +23,7 @@ gift.infrastructure  → GiftDelivery 구현체 (FakeGiftDelivery)
 
 ## 테스트 규칙
 
-- **인수 테스트(Acceptance Test)**: `@SpringBootTest(webEnvironment = RANDOM_PORT)` + `TestRestTemplate`
+- **인수 테스트(Acceptance Test)**: `@SpringBootTest(webEnvironment = RANDOM_PORT)` + `RestAssured`
 - **데이터 준비**: `@Sql` 어노테이션으로 SQL 스크립트 실행. API/Service/Repository 직접 호출 금지
 - **테스트 격리**: 매 테스트 전 `cleanup.sql` 실행. `@Transactional`, `@DirtiesContext` 사용 금지
 - **검증 방식**: "호출 여부"가 아닌 "결과 상태"를 검증. API 응답과 후속 API 호출로 확인
@@ -35,10 +35,11 @@ gift.infrastructure  → GiftDelivery 구현체 (FakeGiftDelivery)
 
 ```
 src/test/resources/sql/
-├── cleanup.sql       # DELETE (외래키 역순: wish → option → product → category → member)
-├── category-data.sql
-├── product-data.sql
-└── gift-data.sql
+├── cleanup.sql        # DELETE + IDENTITY 리셋 (외래키 역순)
+├── category-data.sql  # 카테고리만
+├── product-data.sql   # 상품만 (category-data.sql에 의존)
+├── option-data.sql    # 옵션만 (product-data.sql에 의존)
+└── member-data.sql    # 회원만
 ```
 
 ## 주의사항

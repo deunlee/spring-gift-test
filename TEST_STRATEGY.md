@@ -30,7 +30,7 @@
 
 ### 테스트 환경
 
-- `@SpringBootTest(webEnvironment = RANDOM_PORT)` + `TestRestTemplate`으로 실제 서블릿 컨테이너를 띄운다.
+- `@SpringBootTest(webEnvironment = RANDOM_PORT)` + **RestAssured**로 실제 서블릿 컨테이너를 띄우고 HTTP 요청을 보낸다.
 - H2 인메모리 DB를 사용하며, 테스트 시작 시 스키마가 자동 생성된다.
 
 ### 데이터 준비 방식 (Given 단계)
@@ -106,7 +106,7 @@ void 선물을_보내면_재고가_차감된다() {
 ### 테스트 간 격리 전략
 
 - **`@DirtiesContext`는 사용하지 않는다.** 컨텍스트 재생성 비용이 크다.
-- **`@Transactional`은 사용하지 않는다.** `TestRestTemplate`은 별도 스레드에서 HTTP 요청을 보내므로, 테스트의 `@Transactional` 롤백이 적용되지 않는다.
+- **`@Transactional`은 사용하지 않는다.** RestAssured는 별도 스레드에서 HTTP 요청을 보내므로, 테스트의 `@Transactional` 롤백이 적용되지 않는다.
 - **`@Sql`의 `executionPhase = BEFORE_TEST_METHOD`로 격리한다.** 매 테스트 실행 전 `cleanup.sql`을 먼저 실행하여 이전 테스트의 데이터를 정리한 뒤, 필요한 데이터를 INSERT한다.
 
 ```java
@@ -156,16 +156,18 @@ Option 조회 REST API가 존재하지 않으므로, 재고 차감은 **간접 �
 
 ## 4. 주요 의사결정
 
-### `@SpringBootTest` + `TestRestTemplate` 선택 이유
+### `@SpringBootTest` + RestAssured 선택 이유
 
-| 비교 항목 | MockMvc | TestRestTemplate |
-|-----------|---------|------------------|
+| 비교 항목 | MockMvc | RestAssured |
+|-----------|---------|-------------|
 | 서블릿 컨테이너 | 미구동 (Mock) | **실제 구동** |
 | HTTP 요청 | 모킹된 요청 | **실제 HTTP 요청** |
 | 직렬화/역직렬화 | 부분 검증 | **전체 경로 검증** |
 | 트랜잭션 경계 | 테스트와 공유 가능 | **분리됨 (실제와 동일)** |
+| API 테스트 가독성 | 직접 구성 필요 | **Given-When-Then DSL 내장** |
+| 응답 검증 | 별도 역직렬화 필요 | **JsonPath + Hamcrest 체이닝** |
 
-**TestRestTemplate을 선택한다.** 인수 테스트의 목적은 실제 HTTP 요청부터 DB 영속까지의 전체 흐름을 검증하는 것이다. 특히 `spring.jpa.open-in-view=false` 설정으로 인한 트랜잭션 경계 이슈를 MockMvc로는 발견할 수 없다.
+**RestAssured를 선택한다.** 인수 테스트의 목적은 실제 HTTP 요청부터 DB 영속까지의 전체 흐름을 검증하는 것이다. 특히 `spring.jpa.open-in-view=false` 설정으로 인한 트랜잭션 경계 이슈를 MockMvc로는 발견할 수 없다. RestAssured의 `given()-when()-then()` DSL은 인수 테스트의 시나리오 구조와 자연스럽게 대응되며, 응답 본문을 JsonPath로 바로 검증할 수 있어 별도의 역직렬화 코드가 필요 없다.
 
 ### 컨트롤러 미존재 기능의 테스트 접근
 
@@ -192,14 +194,23 @@ Option 조회 REST API가 존재하지 않으므로, 재고 차감은 **간접 �
 테스트에서는 각 API의 **현재 동작 방식을 그대로 반영**한다. 이 불일치 자체가 리팩터링 대상이 될 수 있으며, 인수 테스트는 리팩터링 전후로 외부 행동이 동일한지를 보장하는 역할을 한다.
 
 ```java
-// 카테고리 생성 — Form Parameter
-restTemplate.postForEntity("/api/categories?name=음료", null, Category.class);
+// 카테고리 생성 — Query Parameter
+given()
+        .queryParam("name", "음료")
+.when()
+        .post("/api/categories")
+.then()
+        .statusCode(200);
 
 // 선물 보내기 — JSON Body
-HttpHeaders headers = new HttpHeaders();
-headers.set("Member-Id", String.valueOf(memberId));
-headers.setContentType(MediaType.APPLICATION_JSON);
-restTemplate.postForEntity("/api/gifts", new HttpEntity<>(giftRequest, headers), Void.class);
+given()
+        .header("Member-Id", memberId)
+        .contentType("application/json")
+        .body(giftRequestJson)
+.when()
+        .post("/api/gifts")
+.then()
+        .statusCode(200);
 ```
 
 ---
@@ -221,17 +232,24 @@ src/test/java/gift/
 ```java
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Sql(scripts = "/sql/cleanup.sql", executionPhase = BEFORE_TEST_METHOD)
+@SqlMergeMode(MERGE)
 public abstract class AcceptanceTest {
 
-    @Autowired
-    protected TestRestTemplate restTemplate;
+    @LocalServerPort
+    private int port;
+
+    @BeforeEach
+    void setUp() {
+        RestAssured.port = port;
+    }
 }
 ```
 
-`cleanup.sql`은 베이스 클래스에 선언하여 모든 테스트 전에 자동 실행된다. 각 테스트는 필요한 데이터 SQL만 추가로 선언하면 된다.
+- `@LocalServerPort`로 랜덤 포트를 주입받아 `RestAssured.port`에 설정한다.
+- `@SqlMergeMode(MERGE)`를 선언하여, 자식 클래스의 method-level `@Sql`이 class-level `@Sql`을 override하지 않고 **병합**되도록 한다. 이를 통해 `cleanup.sql`은 항상 실행되고, 각 테스트는 데이터 SQL만 추가하면 된다.
 
 ```java
-// 자식 클래스 예시
+// 자식 클래스 예시 — cleanup.sql이 먼저 실행된 후 gift-data.sql이 실행된다
 @Sql(scripts = "/sql/gift-data.sql", executionPhase = BEFORE_TEST_METHOD)
 @Test
 void 선물을_보내면_재고가_차감된다() { ... }
